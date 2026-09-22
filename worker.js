@@ -1,6 +1,6 @@
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
@@ -102,7 +102,7 @@ export default {
 
         const user = await env.DB
           .prepare(
-            `SELECT id, nickname, username, age, gender, phone, password_hash
+            `SELECT id, nickname, username, age, gender, phone, avatar
              FROM users
              WHERE username = ?
              LIMIT 1`
@@ -117,9 +117,23 @@ export default {
           }, 401);
         }
 
+        const passwordRow = await env.DB
+          .prepare(
+            "SELECT password_hash FROM users WHERE id = ? LIMIT 1"
+          )
+          .bind(user.id)
+          .first();
+
+        if (!passwordRow) {
+          return json({
+            success: false,
+            message: "ไม่พบข้อมูลบัญชี"
+          }, 401);
+        }
+
         const valid = await verifyPassword(
           password,
-          user.password_hash
+          passwordRow.password_hash
         );
 
         if (!valid) {
@@ -138,7 +152,8 @@ export default {
             username: user.username,
             age: user.age,
             gender: user.gender,
-            phone: user.phone
+            phone: user.phone,
+            avatar: user.avatar || ""
           }
         }, 200);
 
@@ -154,7 +169,7 @@ export default {
       try {
         const result = await env.DB
           .prepare(
-            `SELECT id, nickname, username, age, gender, created_at
+            `SELECT id, nickname, username, age, gender, avatar, created_at
              FROM users
              ORDER BY id DESC`
           )
@@ -169,6 +184,111 @@ export default {
         return json({
           success: false,
           message: "ไม่สามารถโหลดสมาชิกได้"
+        }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/profile") {
+      try {
+        const username = String(
+          url.searchParams.get("username") || ""
+        ).trim();
+
+        if (!username) {
+          return json({
+            success: false,
+            message: "ไม่พบชื่อผู้ใช้"
+          }, 400);
+        }
+
+        const user = await env.DB
+          .prepare(
+            `SELECT id, nickname, username, age, gender, phone, avatar, created_at
+             FROM users
+             WHERE username = ?
+             LIMIT 1`
+          )
+          .bind(username)
+          .first();
+
+        if (!user) {
+          return json({
+            success: false,
+            message: "ไม่พบข้อมูลผู้ใช้"
+          }, 404);
+        }
+
+        return json({
+          success: true,
+          user: user
+        }, 200);
+
+      } catch (error) {
+        return json({
+          success: false,
+          message: "ไม่สามารถโหลดโปรไฟล์ได้"
+        }, 500);
+      }
+    }
+
+    if (request.method === "PUT" && url.pathname === "/profile") {
+      try {
+        const data = await request.json();
+
+        const username = String(data.username || "").trim();
+        const nickname = String(data.nickname || "").trim();
+        const avatar = String(data.avatar || "");
+
+        if (!username || !nickname) {
+          return json({
+            success: false,
+            message: "กรุณากรอกชื่อเล่น"
+          }, 400);
+        }
+
+        if (avatar.length > 750000) {
+          return json({
+            success: false,
+            message: "รูปโปรไฟล์มีขนาดใหญ่เกินไป"
+          }, 413);
+        }
+
+        const user = await env.DB
+          .prepare(
+            "SELECT id FROM users WHERE username = ? LIMIT 1"
+          )
+          .bind(username)
+          .first();
+
+        if (!user) {
+          return json({
+            success: false,
+            message: "ไม่พบข้อมูลผู้ใช้"
+          }, 404);
+        }
+
+        await env.DB
+          .prepare(
+            `UPDATE users
+             SET nickname = ?, avatar = ?
+             WHERE username = ?`
+          )
+          .bind(
+            nickname,
+            avatar,
+            username
+          )
+          .run();
+
+        return json({
+          success: true,
+          message: "บันทึกโปรไฟล์สำเร็จ"
+        }, 200);
+
+      } catch (error) {
+        return json({
+          success: false,
+          message: "ไม่สามารถบันทึกโปรไฟล์ได้"
         }, 500);
       }
     }
@@ -293,4 +413,4 @@ function json(data, status) {
       }
     }
   );
-            }
+    }
